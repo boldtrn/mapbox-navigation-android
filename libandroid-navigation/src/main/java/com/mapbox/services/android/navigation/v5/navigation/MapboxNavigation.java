@@ -21,14 +21,11 @@ import com.mapbox.services.android.navigation.v5.navigation.camera.Camera;
 import com.mapbox.services.android.navigation.v5.navigation.camera.SimpleCamera;
 import com.mapbox.services.android.navigation.v5.navigation.metrics.FeedbackEvent;
 import com.mapbox.services.android.navigation.v5.offroute.OffRoute;
-import com.mapbox.services.android.navigation.v5.offroute.OffRouteDetector;
 import com.mapbox.services.android.navigation.v5.offroute.OffRouteListener;
 import com.mapbox.services.android.navigation.v5.route.FasterRoute;
-import com.mapbox.services.android.navigation.v5.route.FasterRouteDetector;
 import com.mapbox.services.android.navigation.v5.route.FasterRouteListener;
 import com.mapbox.services.android.navigation.v5.routeprogress.ProgressChangeListener;
 import com.mapbox.services.android.navigation.v5.snap.Snap;
-import com.mapbox.services.android.navigation.v5.snap.SnapToRoute;
 import com.mapbox.services.android.navigation.v5.utils.ValidationUtils;
 
 import java.util.ArrayList;
@@ -40,6 +37,7 @@ import retrofit2.Callback;
 import timber.log.Timber;
 
 import static com.mapbox.services.android.navigation.v5.navigation.NavigationConstants.BANNER_INSTRUCTION_MILESTONE_ID;
+import static com.mapbox.services.android.navigation.v5.navigation.NavigationConstants.NON_NULL_APPLICATION_CONTEXT_REQUIRED;
 import static com.mapbox.services.android.navigation.v5.navigation.NavigationConstants.VOICE_INSTRUCTION_MILESTONE_ID;
 
 /**
@@ -53,19 +51,16 @@ import static com.mapbox.services.android.navigation.v5.navigation.NavigationCon
 public class MapboxNavigation implements ServiceConnection {
 
   private NavigationEventDispatcher navigationEventDispatcher;
+  private NavigationEngineProvider navigationEngineProvider;
   private NavigationService navigationService;
   private DirectionsRoute directionsRoute;
   private MapboxNavigationOptions options;
   private LocationEngine locationEngine = null;
   private Set<Milestone> milestones;
   private final String accessToken;
-  private OffRoute offRouteEngine;
-  private FasterRoute fasterRouteEngine;
-  private Snap snapEngine;
-  private Context context;
+  private Context applicationContext;
   private boolean isBound;
   private NavigationTelemetry navigationTelemetry = null;
-  private Camera cameraEngine;
 
   /**
    * Constructs a new instance of this class using the default options. This should be used over
@@ -106,8 +101,8 @@ public class MapboxNavigation implements ServiceConnection {
   public MapboxNavigation(@NonNull Context context, @NonNull String accessToken,
                           @NonNull MapboxNavigationOptions options) {
     this.accessToken = accessToken;
-    this.context = context;
     this.options = options;
+    initializeContext(context);
     initialize();
   }
 
@@ -116,21 +111,21 @@ public class MapboxNavigation implements ServiceConnection {
                    @NonNull MapboxNavigationOptions options, NavigationTelemetry navigationTelemetry,
                    LocationEngine locationEngine) {
     this.accessToken = accessToken;
-    this.context = context;
     this.options = options;
     this.navigationTelemetry = navigationTelemetry;
     this.locationEngine = locationEngine;
+    initializeContext(context);
     initialize();
   }
 
   // Package private (no modifier) for testing purposes
   MapboxNavigation(@NonNull Context context, @NonNull String accessToken, NavigationTelemetry navigationTelemetry,
                    LocationEngine locationEngine) {
-    this.context = context;
     this.accessToken = accessToken;
     this.options = MapboxNavigationOptions.builder().build();
     this.navigationTelemetry = navigationTelemetry;
     this.locationEngine = locationEngine;
+    initializeContext(context);
     initialize();
   }
 
@@ -142,9 +137,8 @@ public class MapboxNavigation implements ServiceConnection {
   private void initialize() {
     // Initialize event dispatcher and add internal listeners
     navigationEventDispatcher = new NavigationEventDispatcher();
-
+    navigationEngineProvider = new NavigationEngineProvider();
     initializeDefaultLocationEngine();
-    initializeDefaultCameraEngine();
     initializeTelemetry();
 
     // Create and add default milestones if enabled.
@@ -153,20 +147,21 @@ public class MapboxNavigation implements ServiceConnection {
       addMilestone(new VoiceInstructionMilestone.Builder().setIdentifier(VOICE_INSTRUCTION_MILESTONE_ID).build());
       addMilestone(new BannerInstructionMilestone.Builder().setIdentifier(BANNER_INSTRUCTION_MILESTONE_ID).build());
     }
-    if (options.snapToRoute()) {
-      snapEngine = new SnapToRoute();
-    }
-    if (options.enableOffRouteDetection()) {
-      offRouteEngine = new OffRouteDetector();
-    }
-    if (options().enableFasterRouteDetection()) {
-      fasterRouteEngine = new FasterRouteDetector();
+  }
+
+  private void initializeContext(Context context) {
+    if (applicationContext == null) {
+      if (context != null && context.getApplicationContext() != null) {
+        applicationContext = context.getApplicationContext();
+      } else {
+        throw new IllegalArgumentException(NON_NULL_APPLICATION_CONTEXT_REQUIRED);
+      }
     }
   }
 
   private void initializeTelemetry() {
     navigationTelemetry = obtainTelemetry();
-    navigationTelemetry.initialize(context, accessToken, this, locationEngine);
+    navigationTelemetry.initialize(applicationContext, accessToken, this, locationEngine);
   }
 
   private NavigationTelemetry obtainTelemetry() {
@@ -190,7 +185,7 @@ public class MapboxNavigation implements ServiceConnection {
 
   private LocationEngine obtainLocationEngine() {
     if (locationEngine == null) {
-      return new LocationEngineProvider(context).obtainBestLocationEngineAvailable();
+      return new LocationEngineProvider(applicationContext).obtainBestLocationEngineAvailable();
     }
 
     return locationEngine;
@@ -201,14 +196,9 @@ public class MapboxNavigation implements ServiceConnection {
    */
   private void disableLocationEngine() {
     if (locationEngine != null) {
-      locationEngine.removeLocationEngineListener(null);
       locationEngine.removeLocationUpdates();
       locationEngine.deactivate();
     }
-  }
-
-  private void initializeDefaultCameraEngine() {
-    cameraEngine = new SimpleCamera();
   }
 
   // Lifecycle
@@ -222,6 +212,7 @@ public class MapboxNavigation implements ServiceConnection {
     Timber.d("MapboxNavigation onDestroy.");
     stopNavigation();
     disableLocationEngine();
+    navigationEngineProvider.clearEngines();
     removeNavigationEventListener(null);
     removeProgressChangeListener(null);
     removeMilestoneEventListener(null);
@@ -342,7 +333,7 @@ public class MapboxNavigation implements ServiceConnection {
     navigationTelemetry.updateLocationEngine(locationEngine);
     // Notify service to get new location engine.
     if (isServiceAvailable()) {
-      navigationService.acquireLocationEngine();
+      navigationService.updateLocationEngine(locationEngine);
     }
   }
 
@@ -359,33 +350,6 @@ public class MapboxNavigation implements ServiceConnection {
   @NonNull
   public LocationEngine getLocationEngine() {
     return locationEngine;
-  }
-
-  /**
-   * Navigation uses a camera engine to determine the camera position while routing.
-   * By default, it uses a {@link SimpleCamera}. If you would like to customize how the camera is
-   * positioned, create a new {@link Camera} and set it here.
-   *
-   * @param cameraEngine camera engine used to configure camera position while routing
-   * @since 0.10.0
-   */
-  public void setCameraEngine(@NonNull Camera cameraEngine) {
-    this.cameraEngine = cameraEngine;
-  }
-
-  /**
-   * Returns the current camera engine used to configure the camera position while routing. By default,
-   * a {@link SimpleCamera} is used.
-   *
-   * @return camera engine used to configure camera position while routing
-   * @since 0.10.0
-   */
-  @NonNull
-  public Camera getCameraEngine() {
-    if (cameraEngine == null) {
-      return new SimpleCamera();
-    }
-    return cameraEngine;
   }
 
   /**
@@ -417,11 +381,11 @@ public class MapboxNavigation implements ServiceConnection {
       // Start the NavigationService
       Intent intent = getServiceIntent();
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent);
+        applicationContext.startForegroundService(intent);
       } else {
-        context.startService(intent);
+        applicationContext.startService(intent);
       }
-      context.bindService(intent, this, Context.BIND_AUTO_CREATE);
+      applicationContext.bindService(intent, this, Context.BIND_AUTO_CREATE);
 
       // Send navigation event running: true
       navigationEventDispatcher.onNavigationEvent(true);
@@ -448,12 +412,12 @@ public class MapboxNavigation implements ServiceConnection {
   public void stopNavigation() {
     Timber.d("MapboxNavigation stopNavigation called");
     if (isServiceAvailable()) {
-      navigationService.stopSelf();
-      context.unbindService(this);
+      applicationContext.unbindService(this);
       isBound = false;
-      cameraEngine = null;
+      navigationService.endNavigation();
+      navigationService.stopSelf();
+      navigationEventDispatcher.onNavigationEvent(false);
     }
-    navigationEventDispatcher.onNavigationEvent(false);
   }
 
   // Listeners
@@ -647,6 +611,30 @@ public class MapboxNavigation implements ServiceConnection {
   // Custom engines
 
   /**
+   * Navigation uses a camera engine to determine the camera position while routing.
+   * By default, it uses a {@link SimpleCamera}. If you would like to customize how the camera is
+   * positioned, create a new {@link Camera} and set it here.
+   *
+   * @param cameraEngine camera engine used to configure camera position while routing
+   * @since 0.10.0
+   */
+  public void setCameraEngine(@NonNull Camera cameraEngine) {
+    navigationEngineProvider.updateCameraEngine(cameraEngine);
+  }
+
+  /**
+   * Returns the current camera engine used to configure the camera position while routing. By default,
+   * a {@link SimpleCamera} is used.
+   *
+   * @return camera engine used to configure camera position while routing
+   * @since 0.10.0
+   */
+  @NonNull
+  public Camera getCameraEngine() {
+    return navigationEngineProvider.retrieveCameraEngine();
+  }
+
+  /**
    * This API is used to pass in a custom implementation of the snapping logic, A default
    * snap-to-route engine is attached when this class is first initialized; setting a custom one
    * will replace it with your own implementation.
@@ -663,7 +651,7 @@ public class MapboxNavigation implements ServiceConnection {
    */
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
   public void setSnapEngine(@NonNull Snap snapEngine) {
-    this.snapEngine = snapEngine;
+    navigationEngineProvider.updateSnapEngine(snapEngine);
   }
 
   /**
@@ -675,9 +663,8 @@ public class MapboxNavigation implements ServiceConnection {
    * @since 0.5.0
    */
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
-  @NonNull
   public Snap getSnapEngine() {
-    return snapEngine;
+    return navigationEngineProvider.retrieveSnapEngine();
   }
 
   /**
@@ -694,7 +681,7 @@ public class MapboxNavigation implements ServiceConnection {
    */
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
   public void setOffRouteEngine(@NonNull OffRoute offRouteEngine) {
-    this.offRouteEngine = offRouteEngine;
+    navigationEngineProvider.updateOffRouteEngine(offRouteEngine);
   }
 
   /**
@@ -709,7 +696,7 @@ public class MapboxNavigation implements ServiceConnection {
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
   @NonNull
   public OffRoute getOffRouteEngine() {
-    return offRouteEngine;
+    return navigationEngineProvider.retrieveOffRouteEngine();
   }
 
   /**
@@ -726,7 +713,7 @@ public class MapboxNavigation implements ServiceConnection {
    */
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
   public void setFasterRouteEngine(@NonNull FasterRoute fasterRouteEngine) {
-    this.fasterRouteEngine = fasterRouteEngine;
+    navigationEngineProvider.updateFasterRouteEngine(fasterRouteEngine);
   }
 
   /**
@@ -741,7 +728,7 @@ public class MapboxNavigation implements ServiceConnection {
   @SuppressWarnings("WeakerAccess") // Public exposed for usage outside SDK
   @NonNull
   public FasterRoute getFasterRouteEngine() {
-    return fasterRouteEngine;
+    return navigationEngineProvider.retrieveFasterRouteEngine();
   }
 
   /**
@@ -809,8 +796,12 @@ public class MapboxNavigation implements ServiceConnection {
     return navigationEventDispatcher;
   }
 
+  NavigationEngineProvider retrieveEngineProvider() {
+    return navigationEngineProvider;
+  }
+
   private Intent getServiceIntent() {
-    return new Intent(context, NavigationService.class);
+    return new Intent(applicationContext, NavigationService.class);
   }
 
   private boolean isServiceAvailable() {
