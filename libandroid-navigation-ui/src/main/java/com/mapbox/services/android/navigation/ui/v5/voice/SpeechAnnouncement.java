@@ -37,6 +37,17 @@ public abstract class SpeechAnnouncement {
    */
   public abstract String announcement();
 
+  /**
+   * Convert the current {@link SpeechAnnouncement} to its builder holding the currently assigned
+   * values. This allows you to modify a single property and then rebuild the object resulting in
+   * an updated and modified {@link SpeechAnnouncement}.
+   *
+   * @return a {@link SpeechAnnouncement.Builder} with the same values set to match the ones defined
+   * in this {@link SpeechAnnouncement}
+   * @since 0.16.0
+   */
+  public abstract Builder toBuilder();
+
   @Nullable
   abstract VoiceInstructionMilestone voiceInstructionMilestone();
 
@@ -63,7 +74,7 @@ public abstract class SpeechAnnouncement {
     /**
      * The {@link com.mapbox.services.android.navigation.v5.milestone.MilestoneEventListener} can provide
      * voice instructions via {@link VoiceInstructionMilestone}.
-     *
+     * <p>
      * If you pass the milestone into the builder, {@link SpeechAnnouncement} will extract both the SSML
      * and normal speech announcements.
      *

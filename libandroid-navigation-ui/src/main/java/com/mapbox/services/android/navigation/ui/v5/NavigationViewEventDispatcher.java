@@ -5,13 +5,16 @@ import android.support.annotation.Nullable;
 import android.support.design.widget.BottomSheetBehavior.BottomSheetCallback;
 import android.view.View;
 
+import com.mapbox.api.directions.v5.models.BannerInstructions;
 import com.mapbox.api.directions.v5.models.DirectionsRoute;
 import com.mapbox.geojson.Point;
 import com.mapbox.services.android.navigation.ui.v5.feedback.FeedbackItem;
 import com.mapbox.services.android.navigation.ui.v5.listeners.FeedbackListener;
 import com.mapbox.services.android.navigation.ui.v5.listeners.InstructionListListener;
+import com.mapbox.services.android.navigation.ui.v5.listeners.InstructionListener;
 import com.mapbox.services.android.navigation.ui.v5.listeners.NavigationListener;
 import com.mapbox.services.android.navigation.ui.v5.listeners.RouteListener;
+import com.mapbox.services.android.navigation.ui.v5.voice.SpeechAnnouncement;
 import com.mapbox.services.android.navigation.v5.milestone.MilestoneEventListener;
 import com.mapbox.services.android.navigation.v5.navigation.MapboxNavigation;
 import com.mapbox.services.android.navigation.v5.routeprogress.ProgressChangeListener;
@@ -30,6 +33,7 @@ class NavigationViewEventDispatcher {
   private RouteListener routeListener;
   private BottomSheetCallback bottomSheetCallback;
   private InstructionListListener instructionListListener;
+  private InstructionListener instructionListener;
 
   /**
    * Initializes the listeners in the dispatcher, as well as the listeners in the {@link MapboxNavigation}
@@ -44,6 +48,7 @@ class NavigationViewEventDispatcher {
     assignProgressChangeListener(navigationViewOptions, navigation);
     assignMilestoneEventListener(navigationViewOptions, navigation);
     assignInstructionListListener(navigationViewOptions.instructionListListener());
+    assignInstructionListener(navigationViewOptions.instructionListener());
   }
 
   void onDestroy(@Nullable MapboxNavigation navigation) {
@@ -71,6 +76,10 @@ class NavigationViewEventDispatcher {
 
   void assignInstructionListListener(@Nullable InstructionListListener instructionListListener) {
     this.instructionListListener = instructionListListener;
+  }
+
+  void assignInstructionListener(@Nullable InstructionListener instructionListener) {
+    this.instructionListener = instructionListener;
   }
 
   /*
@@ -163,6 +172,24 @@ class NavigationViewEventDispatcher {
     if (instructionListListener != null) {
       instructionListListener.onInstructionListVisibilityChanged(shown);
     }
+  }
+
+  /*
+   * Voice / Banner instructions
+   */
+
+  SpeechAnnouncement onNewSpeechAnnouncement(SpeechAnnouncement announcement) {
+    if (instructionListener != null) {
+      return instructionListener.willVoice(announcement);
+    }
+    return announcement;
+  }
+
+  BannerInstructions onNewBannerInstructions(BannerInstructions instructions) {
+    if (instructionListener != null) {
+      return instructionListener.willPresent(instructions);
+    }
+    return instructions;
   }
 
   private void assignProgressChangeListener(NavigationViewOptions navigationViewOptions, MapboxNavigation navigation) {

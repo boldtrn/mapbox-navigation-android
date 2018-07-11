@@ -19,6 +19,7 @@ import android.text.style.AbsoluteSizeSpan;
 import android.view.View;
 import android.widget.TextView;
 
+import com.mapbox.api.directions.v5.models.BannerInstructions;
 import com.mapbox.api.directions.v5.models.DirectionsResponse;
 import com.mapbox.api.directions.v5.models.DirectionsRoute;
 import com.mapbox.geojson.Point;
@@ -28,7 +29,9 @@ import com.mapbox.services.android.navigation.ui.v5.NavigationView;
 import com.mapbox.services.android.navigation.ui.v5.NavigationViewOptions;
 import com.mapbox.services.android.navigation.ui.v5.OnNavigationReadyCallback;
 import com.mapbox.services.android.navigation.ui.v5.listeners.InstructionListListener;
+import com.mapbox.services.android.navigation.ui.v5.listeners.InstructionListener;
 import com.mapbox.services.android.navigation.ui.v5.listeners.NavigationListener;
+import com.mapbox.services.android.navigation.ui.v5.voice.SpeechAnnouncement;
 import com.mapbox.services.android.navigation.v5.navigation.NavigationRoute;
 import com.mapbox.services.android.navigation.v5.routeprogress.ProgressChangeListener;
 import com.mapbox.services.android.navigation.v5.routeprogress.RouteProgress;
@@ -37,7 +40,7 @@ import retrofit2.Call;
 import retrofit2.Response;
 
 public class EmbeddedNavigationActivity extends AppCompatActivity implements OnNavigationReadyCallback,
-  NavigationListener, ProgressChangeListener, InstructionListListener {
+  NavigationListener, ProgressChangeListener, InstructionListListener, InstructionListener {
 
   private static final Point ORIGIN = Point.fromLngLat(-77.03194990754128, 38.909664963450105);
   private static final Point DESTINATION = Point.fromLngLat(-77.0270025730133, 38.91057077063121);
@@ -160,6 +163,16 @@ public class EmbeddedNavigationActivity extends AppCompatActivity implements OnN
     }
   }
 
+  @Override
+  public SpeechAnnouncement willVoice(SpeechAnnouncement announcement) {
+    return announcement.toBuilder().announcement("All announcments will be the same.").build();
+  }
+
+  @Override
+  public BannerInstructions willPresent(BannerInstructions instructions) {
+    return instructions;
+  }
+
   private void startNavigation(DirectionsRoute directionsRoute) {
     NavigationViewOptions.Builder options =
       NavigationViewOptions.builder()
@@ -167,7 +180,8 @@ public class EmbeddedNavigationActivity extends AppCompatActivity implements OnN
         .directionsRoute(directionsRoute)
         .shouldSimulateRoute(true)
         .progressChangeListener(this)
-        .instructionListListener(this);
+        .instructionListListener(this)
+        .instructionListener(this);
     setBottomSheetCallback(options);
     setupNightModeFab();
 
