@@ -8,4 +8,12 @@
     <string name="miles">mi</string>
     <string name="feet">ft</string>
     <string name="eta_format">%s ETA</string>
+
+    <!-- Time formatting -->
+    <string name="day">day</string>
+    <string name="days">days</string>
+    <!-- Hour -->
+    <string name="hr">hr</string>
+    <!-- Minute -->
+    <string name="min">min</string>
 </resources>
